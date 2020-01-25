@@ -175,8 +175,12 @@ def main():
     with serial.serial_for_url(port, baudrate=2400, timeout=1) as ser:
         while True:
             line = ser.readline()
+            if not line:
+                logging.error('No data! (Is the device in USB mode?)')
+                continue
             data = decode(line)
-            data['status'] = ','.join(data['status'])
+            if 'status' in data:
+                data['status'] = ','.join(data['status'])
             if as_json:
                 print(dumps(data))
             else:
