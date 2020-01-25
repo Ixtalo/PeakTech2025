@@ -130,7 +130,9 @@ def decode(line):
         if status_byte_2 & (2 ** 1): unit = 'n'
 
     if digits == '?0:?':
-        value = 'NA'
+        ## Overrange indication
+        value = 'OL'
+        sign = ''
     else:
         if decpos > 0:
             ## insert the decimal point at the specified position
