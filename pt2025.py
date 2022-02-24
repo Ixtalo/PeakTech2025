@@ -1,5 +1,6 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """pt2025.py - PeakTech 2025 multimeter reader, print to STDOUT.
 
 The digital multimeter PeakTech 2025 does have a RS232 USB interface.
@@ -17,10 +18,13 @@ Arguments:
   COM-port        COM port device, e.g., /dev/ttyUSB3, or URL.
                   (https://pythonhosted.org/pyserial/url_handlers.html#urls)
 Options:
-  -h --help       Show this screen.
-  -j --json       JSON output.
-  -l --list       List available ports.
-  --version       Show version.
+  -h --help          Show this screen.
+  -j --json          JSON output.
+  -e --epoch         Insert unix epoch timestamp
+  -i --isotime       Insert isoformat timestamp
+  -l --list          List available ports.
+  -s --sleep=<s>     Amount of seconds [default: 0] to sleep after each data read
+  --version          Show version.
 """
 ##
 ## LICENSE:
@@ -43,6 +47,8 @@ Options:
 import os
 import sys
 import logging
+import time
+import datetime
 from time import sleep
 from codecs import open
 from docopt import docopt
@@ -50,9 +56,9 @@ from json import dumps
 import serial   ## https://pythonhosted.org/pyserial/pyserial.html#installation
 import serial.tools.list_ports
 
-__version__ = "1.0"
-__date__ = "2020-01-25"
-__updated__ = "2020-01-25"
+__version__ = "1.1"
+__date__ = "2022-02-09"
+__updated__ = "2022-02-09"
 __author__ = "Ixtalo"
 __license__ = "AGPL-3.0+"
 __email__ = "ixtalo@gmail.com"
@@ -75,11 +81,9 @@ def show_ports():
 
 
 def decode(line):
-    result = {}
 
     if len(line) != 14:
-        logging.warning('Invalid byte stream input (wrong length %d)', len(line))
-        return result
+        raise Exception( 'Invalid byte stream input (wrong length {})'.format(len(line)) )
 
     try:
         sign = chr(line[0])
@@ -91,8 +95,7 @@ def decode(line):
         status_byte_4 = line[10]
         bar_graph = line[11]
     except IndexError as ex:
-        logging.warning('Invalid line (%s)', ex)
-        return result
+        raise Exception('Invalid line ({})'.format( ex ) )
 
     status = []
     if status_byte_1 & (2 ** 0): status.append('BPN')
@@ -145,16 +148,13 @@ def decode(line):
 
     logging.debug((sign, value, unit, mode, status))
 
-    result = {
+    return {
         'sign': sign,
         'value': value,
         'unit': unit,
         'mode': mode,
         'status': status
     }
-
-    return result
-
 
 def main():
     arguments = docopt(__doc__, version="pt2025 %s (%s)" % (__version__, __updated__))
@@ -163,6 +163,9 @@ def main():
     port = arguments['<COM-port-or-URL>']
     list_ports = arguments['--list']
     as_json = arguments['--json']
+    print_epoch = arguments['--epoch']
+    print_isoformattime = arguments['--isotime']
+    sleep_after_read = arguments['--sleep']
 
     ## setup logging
     logging.basicConfig(
@@ -176,17 +179,41 @@ def main():
 
     with serial.serial_for_url(port, baudrate=2400, timeout=1) as ser:
         while True:
-            line = ser.readline()
-            if not line:
+
+            data = { }
+            now = datetime.datetime.now()
+            if print_isoformattime:
+                data['isotime'] =  now.isoformat()
+            if print_epoch:
+                data['epoch'] =  now.strftime("%s.%f")
+
+            try:
+                line = ser.readline()
+            except:
                 logging.error('No data! (Is the device in USB mode?)')
+                sleep(1)
                 continue
-            data = decode(line)
+
+            try:
+                data.update(decode(line))
+            except Exception as ex:
+                logging.warning(ex.args)
+                continue
+
+            if not 'value' in data:
+                logging.error('No data!')
+                continue
+
             if 'status' in data:
                 data['status'] = ','.join(data['status'])
+
             if as_json:
-                print(dumps(data))
+                print(dumps(data),  flush=True)
             else:
-                print(';'.join([str(v) for v in data.values()]))
+                print(';'.join([str(v) for v in data.values()]),  flush=True)
+
+            if float(sleep_after_read):
+                sleep(float(sleep_after_read))
 
     return 0
 
